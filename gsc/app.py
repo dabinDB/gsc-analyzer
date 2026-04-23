@@ -119,7 +119,7 @@ if uploaded:
     col1, col2 = st.columns([1, 1])
     with col1:
         st.subheader("요약 지표")
-        fmt = {"CTR": "{:.2%}", "Top3 노출 비중": "{:.2%}"}
+        fmt = {"키워드수": "{:.0f}", "노출수": "{:.0f}", "클릭수": "{:.0f}", "CTR": "{:.2%}", "Top3 노출 비중": "{:.2%}"}
         st.dataframe(summary.style.format(fmt, na_rep="-"), use_container_width=True)
     with col2:
         st.subheader("샘플 raw")
