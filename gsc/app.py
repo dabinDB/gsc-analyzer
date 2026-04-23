@@ -31,25 +31,33 @@ def read_csv_safely(file) -> pd.DataFrame:
     return pd.read_csv(io.BytesIO(content), encoding="utf-8-sig", comment="#", engine="python")
 
 # ---------- Brand rule ----------
+DEFAULT_ADD = [
+    "k t", "k. t. m", "k t mobile", "k-t", "k.t", "k.t.", "k/t",
+    "k t engineering", "k-t event", "\"f와 g\" \"n, k, t\""
+]
+DEFAULT_REMOVE = [
+    "www.ktmmobile",
+    "kt 해외 로밍 데이터 무제한 요금제"
+]
+
 def build_brand_mask(q: pd.Series, add_list, remove_list) -> pd.Series:
     q = q.fillna("").astype(str)
 
     base = (
         q.str.contains("케이티", regex=False)
         | q.str.contains(r"(?:^|[^a-z0-9])kt(?:[^a-z0-9]|$)", case=False, regex=True)
-        | q.str.contains(r"^kt(?=[0-9가-힣\W_])", case=False, regex=True)
+        | q.str.contains(r"^kt[가-힣]", case=False, regex=True)
         | q.str.contains(r"ktm|kt\s*m|kt엠|케이티\s*엠|케이티엠|ktmmobile", case=False, regex=True)
         | q.str.startswith("엠모바일")
         | q.str.startswith("m모바일")
         | q.str.startswith("m 모바일")
         | q.str.lower().str.startswith("mmobile")
-        | q.str.contains(r"\bk\W*t\b", case=False, regex=True)
     )
 
-    add_mask = q.isin([x.strip() for x in add_list if x.strip()])
-    remove_mask = q.isin([x.strip() for x in remove_list if x.strip()])
+    all_add = DEFAULT_ADD + [x.strip() for x in add_list if x.strip()]
+    all_remove = DEFAULT_REMOVE + [x.strip() for x in remove_list if x.strip()]
 
-    return (base | add_mask) & (~remove_mask)
+    return (base | q.isin(all_add)) & (~q.isin(all_remove))
 
 def summarize(df_std: pd.DataFrame) -> pd.DataFrame:
     def agg(g):
