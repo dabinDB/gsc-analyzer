@@ -76,7 +76,7 @@ def summarize(df_std: pd.DataFrame) -> pd.DataFrame:
     return pd.concat([out, total], ignore_index=True)
 
 # ---------- UI ----------
-st.title("GSC 검색어 업로드 → 브랜드/일반 자동 분류 & 지표 산출")
+st.markdown("#### GSC 검색어 업로드 → 브랜드/일반 자동 분류 & 지표 산출")
 
 uploaded = st.file_uploader("GSC 쿼리 CSV 업로드", type=["csv"])
 
@@ -119,7 +119,8 @@ if uploaded:
     col1, col2 = st.columns([1, 1])
     with col1:
         st.subheader("요약 지표")
-        st.dataframe(summary, use_container_width=True)
+        fmt = {"CTR": "{:.2%}", "Top3 노출 비중": "{:.2%}"}
+        st.dataframe(summary.style.format(fmt, na_rep="-"), use_container_width=True)
     with col2:
         st.subheader("샘플 raw")
         st.dataframe(df_std.head(30), use_container_width=True)
