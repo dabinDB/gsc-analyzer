@@ -21,14 +21,36 @@ def find_col(df, key):
             return c
     return None
 
-def read_csv_safely(file) -> pd.DataFrame:
-    content = file.getvalue()
+def read_csv_safely(content: bytes) -> pd.DataFrame:
     for enc in ["utf-8-sig", "utf-8", "cp949", "euc-kr"]:
         try:
             return pd.read_csv(io.BytesIO(content), encoding=enc, comment="#")
         except Exception:
             continue
     return pd.read_csv(io.BytesIO(content), encoding="utf-8-sig", comment="#", engine="python")
+
+def extract_dates(content: bytes) -> str:
+    """# 시작일 / 종료일 주석에서 날짜 문자열 추출"""
+    for enc in ["utf-8-sig", "utf-8", "cp949", "euc-kr"]:
+        try:
+            text = content.decode(enc)
+            break
+        except Exception:
+            continue
+    else:
+        return ""
+
+    start = re.search(r"#\s*시작일[:\s]+(\d{8})", text)
+    end   = re.search(r"#\s*종료일[:\s]+(\d{8})", text)
+
+    def fmt(d):
+        return f"{d[:4]}.{d[4:6]}.{d[6:]}" if d else "?"
+
+    if start or end:
+        s = fmt(start.group(1)) if start else "?"
+        e = fmt(end.group(1))   if end   else "?"
+        return f"{s} ~ {e}"
+    return ""
 
 # ---------- Brand rule ----------
 DEFAULT_ADD = [
@@ -86,64 +108,72 @@ def summarize(df_std: pd.DataFrame) -> pd.DataFrame:
 # ---------- UI ----------
 st.markdown("#### GSC 검색어 업로드 → 브랜드/일반 자동 분류 & 지표 산출")
 
-uploaded = st.file_uploader("GSC 쿼리 CSV 업로드", type=["csv"])
+uploaded_files = st.file_uploader("GSC 쿼리 CSV 업로드 (여러 파일 동시 가능)", type=["csv"], accept_multiple_files=True)
 
 with st.expander("브랜드 분류 예외(선택)"):
     add_text = st.text_area("강제 포함 query (줄바꿈)", value="")
     remove_text = st.text_area("강제 제외 query (줄바꿈)", value="")
 
-if uploaded:
-    df = read_csv_safely(uploaded)
+fmt = {"키워드수": "{:.0f}", "노출수": "{:.0f}", "클릭수": "{:.0f}", "CTR": "{:.2%}", "Top3 노출 비중": "{:.2%}"}
 
-    q_col = find_col(df, "query")
-    c_col = find_col(df, "clicks")
-    i_col = find_col(df, "impressions")
-    ctr_col = find_col(df, "ctr")
-    p_col = find_col(df, "position")
-
-    missing = [k for k, col in [("query", q_col), ("clicks", c_col), ("impressions", i_col), ("position", p_col)] if col is None]
-    if missing:
-        st.error(f"필수 컬럼을 못 찾았어: {missing}. (파일이 GSC 쿼리 export인지 확인 필요)")
-        st.stop()
-
-    df_std = pd.DataFrame({
-        "query": df[q_col].astype(str),
-        "clicks": pd.to_numeric(df[c_col], errors="coerce").fillna(0),
-        "impressions": pd.to_numeric(df[i_col], errors="coerce").fillna(0),
-        "ctr": pd.to_numeric(df[ctr_col], errors="coerce") if ctr_col else np.nan,
-        "position": pd.to_numeric(df[p_col], errors="coerce"),
-    })
-    df_std["clicks"] = df_std["clicks"].astype(int)
-    df_std["impressions"] = df_std["impressions"].astype(int)
-
+if uploaded_files:
     add_list = add_text.splitlines()
     remove_list = remove_text.splitlines()
 
-    brand_mask = build_brand_mask(df_std["query"], add_list, remove_list)
-    df_std["brand_flag"] = np.where(brand_mask, "브랜드/준브랜드(kt 포함)", "일반(비브랜드)")
-
-    summary = summarize(df_std)
-
-    col1, col2 = st.columns([1, 1])
-    with col1:
-        st.subheader("요약 지표")
-        fmt = {"키워드수": "{:.0f}", "노출수": "{:.0f}", "클릭수": "{:.0f}", "CTR": "{:.2%}", "Top3 노출 비중": "{:.2%}"}
-        st.dataframe(summary.style.format(fmt, na_rep="-"), use_container_width=True)
-    with col2:
-        st.subheader("샘플 raw")
-        st.dataframe(df_std.head(30), use_container_width=True)
-
-    output = io.BytesIO()
-    with pd.ExcelWriter(output, engine="openpyxl") as writer:
-        df_std.to_excel(writer, index=False, sheet_name="raw")
-        summary.to_excel(writer, index=False, sheet_name="summary")
+    excel_output = io.BytesIO()
+    with pd.ExcelWriter(excel_output, engine="openpyxl") as writer:
         pd.DataFrame([{
             "note": "CTR은 클릭/노출로 재계산. Top3 노출 비중 = position<=3 노출합 / 전체노출합"
         }]).to_excel(writer, index=False, sheet_name="notes")
 
+        for i, uploaded in enumerate(uploaded_files, start=1):
+            content = uploaded.getvalue()
+            date_range = extract_dates(content)
+            label = f"파일 {i}  {date_range}" if date_range else f"파일 {i}  {uploaded.name}"
+
+            df = read_csv_safely(content)
+
+            q_col   = find_col(df, "query")
+            c_col   = find_col(df, "clicks")
+            i_col   = find_col(df, "impressions")
+            ctr_col = find_col(df, "ctr")
+            p_col   = find_col(df, "position")
+
+            missing = [k for k, col in [("query", q_col), ("clicks", c_col), ("impressions", i_col), ("position", p_col)] if col is None]
+            if missing:
+                st.error(f"[{uploaded.name}] 필수 컬럼 없음: {missing}")
+                continue
+
+            df_std = pd.DataFrame({
+                "query":       df[q_col].astype(str),
+                "clicks":      pd.to_numeric(df[c_col], errors="coerce").fillna(0).astype(int),
+                "impressions": pd.to_numeric(df[i_col], errors="coerce").fillna(0).astype(int),
+                "ctr":         pd.to_numeric(df[ctr_col], errors="coerce") if ctr_col else np.nan,
+                "position":    pd.to_numeric(df[p_col], errors="coerce"),
+            })
+
+            brand_mask = build_brand_mask(df_std["query"], add_list, remove_list)
+            df_std["brand_flag"] = np.where(brand_mask, "브랜드/준브랜드(kt 포함)", "일반(비브랜드)")
+
+            summary = summarize(df_std)
+
+            st.markdown(f"---\n#### {label}")
+            col1, col2 = st.columns([1, 1])
+            with col1:
+                st.markdown("**요약 지표**")
+                st.dataframe(summary.style.format(fmt, na_rep="-"), use_container_width=True)
+            with col2:
+                st.markdown("**샘플 raw**")
+                st.dataframe(df_std.head(30), use_container_width=True)
+
+            # 엑셀 시트명 (최대 31자 제한)
+            sheet_prefix = f"f{i}"
+            df_std.to_excel(writer, index=False, sheet_name=f"{sheet_prefix}_raw")
+            summary.to_excel(writer, index=False, sheet_name=f"{sheet_prefix}_summary")
+
     st.download_button(
-        label="엑셀 다운로드 (raw + summary)",
-        data=output.getvalue(),
+        label="엑셀 다운로드 (전체 파일)",
+        data=excel_output.getvalue(),
         file_name="gsc_brand_nonbrand_output.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
