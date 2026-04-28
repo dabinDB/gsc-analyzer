@@ -1,10 +1,8 @@
 import io
-import json
 import re
 import numpy as np
 import pandas as pd
 import streamlit as st
-import streamlit.components.v1 as components
 
 st.set_page_config(page_title="GSC Brand vs Nonbrand Analyzer", layout="wide")
 
@@ -115,8 +113,8 @@ def summarize(df_std: pd.DataFrame) -> pd.DataFrame:
     }])
     return pd.concat([out, total], ignore_index=True)
 
-def excel_copy_button(summary: pd.DataFrame, key: str):
-    """브랜드/비브랜드 10개 지표를 탭 구분으로 클립보드에 복사하는 버튼"""
+def excel_copy_section(summary: pd.DataFrame, key: str):
+    """브랜드/비브랜드 10개 지표를 탭 구분 텍스트로 표시 (엑셀 붙여넣기용)"""
     BRAND_LABEL = "브랜드/준브랜드(kt 포함)"
     NB_LABEL    = "일반(비브랜드)"
 
@@ -148,38 +146,23 @@ def excel_copy_button(summary: pd.DataFrame, key: str):
         pct(n["Top3 노출 비중"]),
     ]
 
-    tab_str = "\t".join(str(v) for v in vals)
-    js_val  = json.dumps(tab_str)  # safely escaped
-
     headers = [
         "브랜드 노출수", "브랜드 클릭수", "브랜드 CTR(%)",
         "브랜드 평균 게재순위", "브랜드 Top3 노출 비중",
         "비브랜드 노출수", "비브랜드 클릭수", "비브랜드 CTR(%)",
         "비브랜드 평균 게재순위", "비브랜드 Top3 노출 비중",
     ]
-    preview_rows = "".join(
-        f"<tr><td style='padding:2px 10px;color:#888;font-size:11px;'>{h}</td>"
-        f"<td style='padding:2px 10px;font-size:12px;font-weight:600;'>{v}</td></tr>"
-        for h, v in zip(headers, vals)
-    )
 
-    html = f"""
-    <div style="font-family:sans-serif;">
-      <button id="copybtn_{key}"
-        onclick="navigator.clipboard.writeText({js_val}).then(()=>{{
-          var b=document.getElementById('copybtn_{key}');
-          b.textContent='복사됨!';
-          b.style.background='#d4edda';
-          setTimeout(()=>{{b.textContent='엑셀 복사';b.style.background='#f0f2f6';}},2000);
-        }})"
-        style="padding:7px 18px;border-radius:6px;border:1px solid #ccc;
-               cursor:pointer;background:#f0f2f6;font-size:13px;margin-bottom:8px;">
-        엑셀 복사
-      </button>
-      <table style="border-collapse:collapse;">{preview_rows}</table>
-    </div>
-    """
-    components.html(html, height=40 + len(vals) * 22 + 16)
+    preview_df = pd.DataFrame({"항목": headers, "값": [str(v) for v in vals]})
+    st.dataframe(preview_df, hide_index=True, use_container_width=True)
+
+    tab_str = "\t".join(str(v) for v in vals)
+    st.text_area(
+        "전체 선택(Ctrl+A) 후 복사 → 엑셀에 붙여넣기",
+        value=tab_str,
+        height=68,
+        key=key,
+    )
 
 # ---------- UI ----------
 st.markdown("#### GSC 검색어 업로드 → 브랜드/일반 자동 분류 & 지표 산출")
@@ -241,16 +224,18 @@ if uploaded_files:
             summary = summarize(df_std)
 
             st.markdown(f"---\n#### {label}")
-            col1, col2, col3 = st.columns([1.2, 1, 0.8])
+            col1, col2 = st.columns([1, 1])
             with col1:
                 st.markdown("**요약 지표**")
                 st.dataframe(summary.style.format(fmt, na_rep="-"), use_container_width=True)
             with col2:
                 st.markdown("**샘플 raw**")
                 st.dataframe(df_std.head(30), use_container_width=True)
-            with col3:
+
+            _, center, _ = st.columns([1, 2, 1])
+            with center:
                 st.markdown("**엑셀 붙여넣기용**")
-                excel_copy_button(summary, key=f"file{i}")
+                excel_copy_section(summary, key=f"file{i}")
 
             # 엑셀 시트명 (최대 31자 제한)
             sheet_prefix = f"f{i}"
