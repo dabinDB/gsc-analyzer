@@ -128,7 +128,7 @@ def excel_copy_section(summary: pd.DataFrame, key: str):
     n = n_rows.iloc[0]
 
     def pct(v):
-        return round(float(v) * 100, 2) if pd.notna(v) else ""
+        return f"{round(float(v) * 100, 2)}%" if pd.notna(v) else ""
 
     def dec(v):
         return round(float(v), 2) if pd.notna(v) else ""
