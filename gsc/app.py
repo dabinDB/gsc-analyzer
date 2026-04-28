@@ -229,13 +229,11 @@ if uploaded_files:
                 st.markdown("**요약 지표**")
                 st.dataframe(summary.style.format(fmt, na_rep="-"), use_container_width=True)
             with col2:
-                st.markdown("**샘플 raw**")
-                st.dataframe(df_std.head(30), use_container_width=True)
-
-            _, center, _ = st.columns([1, 2, 1])
-            with center:
                 st.markdown("**엑셀 붙여넣기용**")
                 excel_copy_section(summary, key=f"file{i}")
+
+            with st.expander("샘플 raw 보기", expanded=False):
+                st.dataframe(df_std.head(30), use_container_width=True)
 
             # 엑셀 시트명 (최대 31자 제한)
             sheet_prefix = f"f{i}"
