@@ -113,6 +113,64 @@ def summarize(df_std: pd.DataFrame) -> pd.DataFrame:
     }])
     return pd.concat([out, total], ignore_index=True)
 
+# ---------- 포지션 구간별 분포 ----------
+POSITION_BINS = [
+    ("<=1",   None, 1),
+    ("1-3",   1,    3),
+    ("3-5",   3,    5),
+    ("5-10",  5,    10),
+    ("10-20", 10,   20),
+]
+
+def position_distribution(df_group: pd.DataFrame) -> pd.DataFrame:
+    total_q    = df_group["query"].nunique()
+    total_impr = df_group["impressions"].sum()
+    total_clk  = df_group["clicks"].sum()
+
+    rows = []
+    for label, lo, hi in POSITION_BINS:
+        mask = (df_group["position"] <= hi) if lo is None \
+               else ((df_group["position"] > lo) & (df_group["position"] <= hi))
+        g     = df_group[mask]
+        q_cnt = g["query"].nunique()
+        impr  = g["impressions"].sum()
+        clk   = g["clicks"].sum()
+        ctr   = clk / impr if impr else 0
+
+        def fmt_cell(val, total):
+            pct = val / total * 100 if total else 0
+            return f"{val:,}  {pct:.1f}%"
+
+        rows.append({
+            "평균 게재순위 구간": label,
+            "검색어수":  fmt_cell(q_cnt, total_q),
+            "노출수":    fmt_cell(impr,  total_impr),
+            "클릭수":    fmt_cell(clk,   total_clk),
+            "CTR":      f"{ctr*100:.2f}%",
+        })
+    return pd.DataFrame(rows)
+
+def show_position_dist(df_std: pd.DataFrame):
+    st.markdown("**평균 게재순위 구간별 분포**")
+    BRAND_LABEL = "브랜드/준브랜드(kt 포함)"
+    NB_LABEL    = "일반(비브랜드)"
+
+    col1, col2 = st.columns(2)
+    with col1:
+        st.caption("브랜드 검색어")
+        brand_df = df_std[df_std["brand_flag"] == BRAND_LABEL]
+        st.dataframe(
+            position_distribution(brand_df),
+            hide_index=True, use_container_width=True,
+        )
+    with col2:
+        st.caption("비브랜드 검색어")
+        nb_df = df_std[df_std["brand_flag"] == NB_LABEL]
+        st.dataframe(
+            position_distribution(nb_df),
+            hide_index=True, use_container_width=True,
+        )
+
 def excel_copy_section(summary: pd.DataFrame, key: str):
     """브랜드/비브랜드 10개 지표를 탭 구분 텍스트로 표시 (엑셀 붙여넣기용)"""
     BRAND_LABEL = "브랜드/준브랜드(kt 포함)"
@@ -232,6 +290,8 @@ if uploaded_files:
                 st.markdown("**엑셀 붙여넣기용**")
                 excel_copy_section(summary, key=f"file{i}")
 
+            show_position_dist(df_std)
+
             with st.expander("샘플 raw 보기", expanded=False):
                 st.dataframe(df_std.head(30), use_container_width=True)
 
@@ -239,6 +299,15 @@ if uploaded_files:
             sheet_prefix = f"f{i}"
             df_std.to_excel(writer, index=False, sheet_name=f"{sheet_prefix}_raw")
             summary.to_excel(writer, index=False, sheet_name=f"{sheet_prefix}_summary")
+            # 구간별 분포 시트
+            BRAND_LABEL = "브랜드/준브랜드(kt 포함)"
+            NB_LABEL    = "일반(비브랜드)"
+            brand_dist = position_distribution(df_std[df_std["brand_flag"] == BRAND_LABEL])
+            nb_dist    = position_distribution(df_std[df_std["brand_flag"] == NB_LABEL])
+            brand_dist.columns = [f"[브랜드] {c}" if c != "평균 게재순위 구간" else c for c in brand_dist.columns]
+            nb_dist.columns    = [f"[비브랜드] {c}" if c != "평균 게재순위 구간" else c for c in nb_dist.columns]
+            dist_sheet = pd.merge(brand_dist, nb_dist, on="평균 게재순위 구간")
+            dist_sheet.to_excel(writer, index=False, sheet_name=f"{sheet_prefix}_dist")
 
     st.download_button(
         label="엑셀 다운로드 (전체 파일)",
