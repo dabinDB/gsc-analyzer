@@ -64,8 +64,11 @@ DEFAULT_REMOVE = [
 
 def build_brand_mask(q: pd.Series, add_list, remove_list) -> pd.Series:
     q = q.fillna("").astype(str)
+    # 소문자 + 연속 공백 정규화 (추가 규칙 매칭용)
+    ql = q.str.lower().str.strip().str.replace(r"\s+", " ", regex=True)
 
     base = (
+        # ── 기존 ──────────────────────────────────────────────────────────
         q.str.contains("케이티", regex=False)
         | q.str.contains(r"(?:^|[^a-z0-9])kt(?:[^a-z0-9]|$)", case=False, regex=True)
         | q.str.contains(r"^kt[가-힣]", case=False, regex=True)
@@ -73,7 +76,49 @@ def build_brand_mask(q: pd.Series, add_list, remove_list) -> pd.Series:
         | q.str.startswith("엠모바일")
         | q.str.startswith("m모바일")
         | q.str.startswith("m 모바일")
-        | q.str.lower().str.startswith("mmobile")
+        | ql.str.startswith("mmobile")
+
+        # ── M마켓 ─────────────────────────────────────────────────────────
+        | ql.str.match(r"^(m|엠) ?(마켓|market)")
+        | ql.isin(["tm market", "엠모인트"])
+
+        # ── M스토어 ───────────────────────────────────────────────────────
+        | ql.str.match(r"^(m|엠) ?(스토어|store)$")
+
+        # ── M쇼핑 ─────────────────────────────────────────────────────────
+        | ql.str.match(r"^(m|엠) ?쇼핑(?!몰)")
+        | ql.str.match(r"^m shopping")
+        | ql.str.match(r"^m shop$")
+        | ql.str.match(r"^m샵$")
+
+        # ── 엠모바일 오타 ─────────────────────────────────────────────────
+        | ql.str.match(r"^(k|케이|케티)?(엠|앰) ?(모바일|모바|모|보바일)")
+        | ql.str.match(r"^m ?모")
+        | ql.str.startswith("모바일엠")
+        | ql.str.match(r"^m ?mobile(?:\s+(?:app|shop|store|대리점))?$")
+
+        # ── KTM 영문 오타 ─────────────────────────────────────────────────
+        | ql.str.match(r"^k[mr]?t?m ?(mobile|모바일)")   # kmt·km·krtm + mobile
+        | ql.str.match(r"^k ?m ?(mobile|모바일)")         # k m mobile
+        | ql.str.match(r"^kr ?m ?(mobile|모바일)")        # kr m 모바일
+        | ql.str.match(r"^kt[a-z]m\b")                   # kttm·ktkm·ktlm 등
+        | ql.isin(["krtm", "k t m"])
+
+        # ── KT 붙여쓰기 (kt + 영숫자 직접 연결) ──────────────────────────
+        | ql.str.match(r"^kt[a-z0-9]")                   # kt114·kt5g·ktshop 등
+        | ql.str.match(r"^mykt\b")
+
+        # ── KT 띄어쓰기 ───────────────────────────────────────────────────
+        | ql.str.match(r"^k t(?:\s|\.|$)")               # k t sim·k t.·k t corporation
+
+        # ── KT 은어 ───────────────────────────────────────────────────────
+        | ql.str.match(r"^(마이)?(케티|캐티|크트)")
+
+        # ── KT 한영전환 (kt → ㅏㅅ) ──────────────────────────────────────
+        | ql.str.contains(r"(?:^|[ .ㅡㅛ])ㅏㅅ", regex=True)
+
+        # ── KT 서비스 ─────────────────────────────────────────────────────
+        | ql.isin(["캐치콜 무료", "캐치콜 서비스", "캐치콜 플러스"])
     )
 
     all_add = DEFAULT_ADD + [x.strip() for x in add_list if x.strip()]
