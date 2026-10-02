@@ -126,6 +126,23 @@ def build_brand_mask(q: pd.Series, add_list, remove_list) -> pd.Series:
 
     return (base | q.isin(all_add)) & (~q.isin(all_remove))
 
+def build_brand_mask_legacy(q: pd.Series, add_list, remove_list) -> pd.Series:
+    """이전 기준 — 확장 규칙 적용 전 원본"""
+    q = q.fillna("").astype(str)
+    base = (
+        q.str.contains("케이티", regex=False)
+        | q.str.contains(r"(?:^|[^a-z0-9])kt(?:[^a-z0-9]|$)", case=False, regex=True)
+        | q.str.contains(r"^kt[가-힣]", case=False, regex=True)
+        | q.str.contains(r"ktm|kt\s*m|kt엠|케이티\s*엠|케이티엠|ktmmobile", case=False, regex=True)
+        | q.str.startswith("엠모바일")
+        | q.str.startswith("m모바일")
+        | q.str.startswith("m 모바일")
+        | q.str.lower().str.startswith("mmobile")
+    )
+    all_add = DEFAULT_ADD + [x.strip() for x in add_list if x.strip()]
+    all_remove = DEFAULT_REMOVE + [x.strip() for x in remove_list if x.strip()]
+    return (base | q.isin(all_add)) & (~q.isin(all_remove))
+
 def summarize(df_std: pd.DataFrame) -> pd.DataFrame:
     def agg(g):
         impressions = g["impressions"].sum()
@@ -341,34 +358,47 @@ if uploaded_files:
                 "position":    pd.to_numeric(df[p_col], errors="coerce"),
             })
 
-            brand_mask = build_brand_mask(df_std["query"], add_list, remove_list)
-            df_std["brand_flag"] = np.where(brand_mask, "브랜드/준브랜드(kt 포함)", "일반(비브랜드)")
+            # 새 기준 / 이전 기준 분류
+            brand_mask_new = build_brand_mask(df_std["query"], add_list, remove_list)
+            brand_mask_leg = build_brand_mask_legacy(df_std["query"], add_list, remove_list)
 
-            summary = summarize(df_std)
+            df_new = df_std.copy()
+            df_new["brand_flag"] = np.where(brand_mask_new, "브랜드/준브랜드(kt 포함)", "일반(비브랜드)")
+            df_leg = df_std.copy()
+            df_leg["brand_flag"] = np.where(brand_mask_leg, "브랜드/준브랜드(kt 포함)", "일반(비브랜드)")
+
+            summary_new = summarize(df_new)
+            summary_leg = summarize(df_leg)
 
             st.markdown(f"---\n#### {label}")
-            col1, col2 = st.columns([1, 1])
-            with col1:
-                st.markdown("**요약 지표**")
-                st.dataframe(summary.style.format(fmt, na_rep="-"), use_container_width=True)
-            with col2:
-                st.markdown("**엑셀 붙여넣기용**")
-                excel_copy_section(summary, key=f"file{i}")
+            tab_new, tab_leg = st.tabs(["새 기준", "이전 기준"])
 
-            show_position_dist(df_std)
+            for tab, df_cur, summary_cur, suffix in [
+                (tab_new, df_new, summary_new, f"file{i}_new"),
+                (tab_leg, df_leg, summary_leg, f"file{i}_leg"),
+            ]:
+                with tab:
+                    col1, col2 = st.columns([1, 1])
+                    with col1:
+                        st.markdown("**요약 지표**")
+                        st.dataframe(summary_cur.style.format(fmt, na_rep="-"), use_container_width=True)
+                    with col2:
+                        st.markdown("**엑셀 붙여넣기용**")
+                        excel_copy_section(summary_cur, key=suffix)
 
-            with st.expander("샘플 raw 보기", expanded=False):
-                st.dataframe(df_std.head(30), use_container_width=True)
+                    show_position_dist(df_cur)
 
-            # 엑셀 시트명 (최대 31자 제한)
+                    with st.expander("샘플 raw 보기", expanded=False):
+                        st.dataframe(df_cur.head(30), use_container_width=True)
+
+            # 엑셀: 새 기준 기준으로 저장
             sheet_prefix = f"f{i}"
-            df_std.to_excel(writer, index=False, sheet_name=f"{sheet_prefix}_raw")
-            summary.to_excel(writer, index=False, sheet_name=f"{sheet_prefix}_summary")
-            # 구간별 분포 시트
+            df_new.to_excel(writer, index=False, sheet_name=f"{sheet_prefix}_raw")
+            summary_new.to_excel(writer, index=False, sheet_name=f"{sheet_prefix}_summary")
             BRAND_LABEL = "브랜드/준브랜드(kt 포함)"
             NB_LABEL    = "일반(비브랜드)"
-            brand_dist = position_distribution(df_std[df_std["brand_flag"] == BRAND_LABEL])
-            nb_dist    = position_distribution(df_std[df_std["brand_flag"] == NB_LABEL])
+            brand_dist = position_distribution(df_new[df_new["brand_flag"] == BRAND_LABEL])
+            nb_dist    = position_distribution(df_new[df_new["brand_flag"] == NB_LABEL])
             brand_dist.columns = [f"[브랜드] {c}" if c != "평균 게재순위 구간" else c for c in brand_dist.columns]
             nb_dist.columns    = [f"[비브랜드] {c}" if c != "평균 게재순위 구간" else c for c in nb_dist.columns]
             dist_sheet = pd.merge(brand_dist, nb_dist, on="평균 게재순위 구간")
