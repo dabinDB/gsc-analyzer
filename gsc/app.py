@@ -259,12 +259,32 @@ def excel_copy_section(summary: pd.DataFrame, key: str):
     preview_df = pd.DataFrame({"항목": headers, "값": [str(v) for v in vals]})
     st.dataframe(preview_df, hide_index=True, use_container_width=True)
 
+    # 가로 (탭 구분) — 한 행에 붙여넣기
     tab_str = "\t".join(str(v) for v in vals)
     st.text_area(
-        "전체 선택(Ctrl+A) 후 복사 → 엑셀에 붙여넣기",
+        "가로 복사 (Ctrl+A → 엑셀 한 행에 붙여넣기)",
         value=tab_str,
         height=68,
-        key=key,
+        key=f"{key}_h",
+    )
+
+    # 세로 (줄바꿈) — 이미지 KPI 표 기준 8개 (평균 게재순위 제외)
+    vertical_vals = [
+        int(b["노출수"]),
+        int(b["클릭수"]),
+        pct(b["CTR"]),
+        pct(b["Top3 노출 비중"]),
+        int(n["노출수"]),
+        int(n["클릭수"]),
+        pct(n["CTR"]),
+        pct(n["Top3 노출 비중"]),
+    ]
+    newline_str = "\n".join(str(v) for v in vertical_vals)
+    st.text_area(
+        "세로 복사 (Ctrl+A → 엑셀 한 열에 붙여넣기)",
+        value=newline_str,
+        height=210,
+        key=f"{key}_v",
     )
 
 # ---------- UI ----------
